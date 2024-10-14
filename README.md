@@ -1,6 +1,6 @@
 # Tackling Sparse Facts for Temporal Knowledge Graph Completion
 
-![Markdown Logo](https://github.com/xuanfeng666666/ANEL/blob/master/REGCN_ANEL/ANEL.png)
+![Markdown Logo](./REGCN_ANEL/ANEL.png)
 
 ## Quick Start
 ### Environment variables & dependencies
