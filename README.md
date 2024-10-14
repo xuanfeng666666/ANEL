@@ -5,8 +5,8 @@
 ## Quick Start
 ### Environment variables & dependencies
 
-conda create -n ANEL python=3.8
-conda activate ANEL
+`conda create -n ANEL python=3.8`
+`conda activate ANEL`
 
 ### Process data
 
