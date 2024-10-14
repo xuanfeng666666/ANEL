@@ -33,25 +33,7 @@ from rgcn.knowledge_graph import _read_triplets_as_list
 import subprocess
 import torch
 
-# def get_free_gpu():
-#     # 获取 GPU 内存使用情况
-#     result = subprocess.check_output(['nvidia-smi', '--query-gpu=memory.used,memory.total', '--format=csv,nounits,noheader'])
-#     result = result.decode('utf-8').strip().split('\n')
 
-#     memory_usage = [int(x.split(', ')[0]) for x in result]
-#     total_memory = [int(x.split(', ')[1]) for x in result]
-#     free_memory = [total - used for used, total in zip(memory_usage, total_memory)]
-
-#     # 找到空闲的 GPU
-#     free_gpu = free_memory.index(max(free_memory))
-#     return free_gpu
-
-# # 获取空闲的 GPU
-# free_gpu = get_free_gpu()
-# print(f"Using GPU: {free_gpu}")
-
-# # 设置环境变量以使用指定的 GPU
-# os.environ['CUDA_VISIBLE_DEVICES'] = str(free_gpu)
 
 
 
@@ -92,12 +74,23 @@ def test(all_neighbor_list,model, history_list, test_list, num_rels, num_nodes, 
     ############
     neighbor_list = all_neighbor_list[len(history_list) - args.test_history_len:len(history_list)]
     global_rep = torch.zeros(num_nodes, 200).cuda()
+    ###########
     for time_idx, test_snap in enumerate(tqdm(test_list)):
         history_glist = [build_sub_graph(num_nodes, num_rels, g, use_cuda, args.gpu) for g in input_list]
         test_triples_input = torch.LongTensor(test_snap).cuda() if use_cuda else torch.LongTensor(test_snap)
         test_triples_input = test_triples_input.to(args.gpu)
+        # get history
+        histroy_data = test_triples_input
+        inverse_histroy_data = histroy_data[:, [2, 1, 0]]
+        inverse_histroy_data[:, 1] = inverse_histroy_data[:, 1] + num_rels
+        histroy_data = torch.cat([histroy_data, inverse_histroy_data])
+        histroy_data = histroy_data.cpu().numpy()
+        ##################
+        fore_neighbor_list = [all_neighbor_list[len(history_list) - args.test_history_len - 1 + time_idx]]
+
+
         t_idx = len(history_list) + time_idx
-        test_triples, final_score, final_r_score ,global_rep= model.predict(global_rep,t_idx,neighbor_list, history_glist, num_rels, static_graph, test_triples_input, use_cuda)
+        test_triples, final_score, final_r_score ,global_rep= model.predict(fore_neighbor_list, global_rep,t_idx,neighbor_list, history_glist, num_rels, static_graph, test_triples_input, use_cuda)
 
         mrr_filter_snap_r, mrr_snap_r, rank_raw_r, rank_filter_r = utils.get_total_rank(test_triples, final_r_score, all_ans_r_list[time_idx], eval_bz=1000, rel_predict=1)
         mrr_filter_snap, mrr_snap, rank_raw, rank_filter = utils.get_total_rank(test_triples, final_score, all_ans_list[time_idx], eval_bz=1000, rel_predict=0)
@@ -141,13 +134,14 @@ def test(all_neighbor_list,model, history_list, test_list, num_rels, num_nodes, 
     mrr_filter = utils.stat_ranks(ranks_filter, "filter_ent")
     mrr_raw_r = utils.stat_ranks(ranks_raw_r, "raw_rel")
     mrr_filter_r = utils.stat_ranks(ranks_filter_r, "filter_rel")
+
     return mrr_raw, mrr_filter, mrr_raw_r, mrr_filter_r
 
 
 def run_experiment(args, n_hidden=None, n_layers=None, dropout=None, n_bases=None):
     # load configuration for grid search the best configuration
 
-    # 设置默认返回值
+   
     # mrr_raw, mrr_filter, mrr_raw_r, mrr_filter_r = 0, 0, 0, 0
 
     if n_hidden:
@@ -303,15 +297,23 @@ def run_experiment(args, n_hidden=None, n_layers=None, dropout=None, n_bases=Non
                     input_list = train_list[0: train_sample_num]
                     #########
                     neighbor_list = all_neighbor_list[0: train_sample_num]
+                    fore_neighbor_list = []
                 else:
                     input_list = train_list[train_sample_num - args.train_history_len:
                                         train_sample_num]
                     ##########
                     neighbor_list = all_neighbor_list[train_sample_num - args.train_history_len: train_sample_num]
+                    if train_sample_num - args.train_history_len == 0:
+                        fore_neighbor_list = []
+                    else:
+                        fore_neighbor_list = [all_neighbor_list[train_sample_num - args.train_history_len -1]]
+
+
                 # generate history graph
                 history_glist = [build_sub_graph(num_nodes, num_rels, snap, use_cuda, args.gpu) for snap in input_list]
                 output = [torch.from_numpy(_).long().cuda() for _ in output] if use_cuda else [torch.from_numpy(_).long() for _ in output]
-                loss_e, loss_r, loss_static, global_rep = model.get_loss(train_sample_num,global_rep,neighbor_list,history_glist, output[0], static_graph, use_cuda)
+
+                loss_e, loss_r, loss_static, global_rep = model.get_loss(fore_neighbor_list, train_sample_num, global_rep, neighbor_list, history_glist, output[0], static_graph, use_cuda)
                 loss = args.task_weight*loss_e + (1-args.task_weight)*loss_r + loss_static
 
                 losses.append(loss.item())
